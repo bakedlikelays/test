@@ -1,0 +1,13 @@
+{
+  "name": "Floodlight Remote",
+  "short_name": "Floodlight",
+  "description": "Bluetooth control for 12V RGB LED floodlights",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0e1013",
+  "theme_color": "#0e1013",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

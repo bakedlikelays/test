@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1013">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Floodlight Remote</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Archivo:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a handheld remote. The lamp preview sits on top, controls stack below; on wide screens the preview pins left and controls run right. */
+:root {
+  --bg: #eceef1;
+  --panel: #ffffff;
+  --ink: #15181d;
+  --muted: #5b6470;
+  --line: #d5d9df;
+  --accent: #d96a12;
+  --accent-ink: #ffffff;
+  --ok: #1d8f4e;
+  --bad: #b8382a;
+  --housing: #2b2f36;
+  --fin: #3a3f47;
+  --lens-off: #4a4f57;
+  --f-display: "Chakra Petch", "Arial Narrow", sans-serif;
+  --f-body: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --glow: #ffb15c;
+  --glow-a: 1;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1013; --panel: #171a1f; --ink: #e8ebee; --muted: #8b949f; --line: #2a2f37;
+    --accent: #f08a2c; --accent-ink: #1a0d02; --ok: #3fbf74; --bad: #ef6a5a;
+    --housing: #07080a; --fin: #1b1e23; --lens-off: #24272d; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1013; --panel: #171a1f; --ink: #e8ebee; --muted: #8b949f; --line: #2a2f37;
+  --accent: #f08a2c; --accent-ink: #1a0d02; --ok: #3fbf74; --bad: #ef6a5a;
+  --housing: #07080a; --fin: #1b1e23; --lens-off: #24272d; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.5 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: max(12px, env(safe-area-inset-top, 0px)) max(24px, env(safe-area-inset-bottom, 0px));
+}
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app { max-width: 1040px; margin: 0 auto; display: grid; gap: 16px; }
+@media (min-width: 860px) {
+  .app { grid-template-columns: 380px 1fr; align-items: start; }
+  .stage-col { position: sticky; top: 16px; }
+}
+
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; grid-column: 1 / -1; }
+h1 { font: 700 1.5rem/1.1 var(--f-display); letter-spacing: 0.02em; margin: 0; text-transform: uppercase; }
+h1 small { display: block; font: 500 0.75rem/1.3 var(--f-body); color: var(--muted); text-transform: none; letter-spacing: 0; }
+
+.status { display: inline-flex; align-items: center; gap: 8px; font: 500 0.8rem var(--f-mono); color: var(--muted); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+.status[data-state="on"] .dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+.status[data-state="busy"] .dot { background: var(--accent); animation: blink 0.9s infinite; }
+.status[data-state="err"] .dot { background: var(--bad); }
+@keyframes blink { 50% { opacity: 0.25; } }
+
+.btn {
+  border: 1px solid var(--line); background: var(--panel); border-radius: 10px;
+  padding: 10px 16px; cursor: pointer; font-weight: 600; min-height: 44px;
+}
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.banner { grid-column: 1 / -1; border: 1px solid var(--bad); border-radius: 12px; padding: 12px 14px; background: color-mix(in srgb, var(--bad) 10%, var(--panel)); }
+.banner b { display: block; margin-bottom: 2px; }
+
+/* Lamp preview */
+.stage {
+  position: relative; border-radius: 18px; overflow: hidden; padding: 28px 16px 36px;
+  background:
+    radial-gradient(120% 80% at 50% 105%, color-mix(in srgb, var(--glow) calc(var(--glow-a) * 55%), transparent), transparent 70%),
+    var(--panel);
+  border: 1px solid var(--line);
+  display: grid; place-items: center; gap: 18px;
+  transition: background 0.2s;
+}
+.lamp {
+  width: min(230px, 70%); aspect-ratio: 5 / 4; border-radius: 16px; padding: 14px;
+  background: var(--housing);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06), 0 10px 30px rgba(0,0,0,0.25);
+  position: relative;
+}
+.lamp::before { /* cooling fins along the top */
+  content: ""; position: absolute; left: 10%; right: 10%; top: -10px; height: 12px; border-radius: 4px 4px 0 0;
+  background: repeating-linear-gradient(90deg, var(--fin) 0 6px, transparent 6px 11px);
+}
+.lamp::after { /* mounting bracket */
+  content: ""; position: absolute; left: 42%; right: 42%; bottom: -16px; height: 16px; background: var(--housing); border-radius: 0 0 6px 6px;
+}
+.lens {
+  width: 100%; height: 100%; border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255,255,255,calc(var(--glow-a) * 0.75)) 0 8%, transparent 45%),
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.12) 0 1px, transparent 1px 9px),
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.12) 0 1px, transparent 1px 9px),
+    var(--glow);
+  opacity: calc(0.25 + var(--glow-a) * 0.75);
+  box-shadow: 0 0 calc(var(--glow-a) * 60px) calc(var(--glow-a) * 10px) color-mix(in srgb, var(--glow) 70%, transparent);
+}
+.stage.off .lens { background: repeating-linear-gradient(0deg, rgba(0,0,0,0.25) 0 1px, transparent 1px 9px), repeating-linear-gradient(90deg, rgba(0,0,0,0.25) 0 1px, transparent 1px 9px), var(--lens-off); box-shadow: none; opacity: 1; }
+.stage.off { background: var(--panel); }
+.readout { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; font: 500 0.8rem var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.readout b { color: var(--ink); font-weight: 500; }
+
+.power-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.power-row .btn { font-family: var(--f-display); text-transform: uppercase; letter-spacing: 0.08em; font-size: 1rem; }
+.power-row .btn[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* Panels */
+.controls { display: grid; gap: 16px; min-width: 0; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; min-width: 0; }
+.panel h2 { margin: 0 0 12px; font: 600 0.8rem/1 var(--f-display); text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.panel h2 span { font: 500 0.8rem var(--f-mono); letter-spacing: 0; text-transform: none; color: var(--ink); }
+
+.color-grid { display: grid; gap: 16px; grid-template-columns: 1fr; justify-items: center; }
+@media (min-width: 560px) { .color-grid { grid-template-columns: auto 1fr; justify-items: stretch; align-items: center; } }
+.wheel-wrap { position: relative; width: 240px; max-width: 100%; aspect-ratio: 1; touch-action: none; border-radius: 50%; }
+.wheel-wrap canvas { width: 100%; height: 100%; display: block; border-radius: 50%; cursor: crosshair; }
+.marker { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.4); pointer-events: none; }
+.swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; width: 100%; }
+.swatch { aspect-ratio: 1.6; border-radius: 10px; border: 1px solid var(--line); cursor: pointer; position: relative; min-height: 40px; }
+.swatch span { position: absolute; left: 6px; bottom: 4px; font: 500 0.7rem var(--f-body); color: #111; background: rgba(255,255,255,0.75); padding: 0 5px; border-radius: 4px; }
+
+.slider-row { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
+.slider-row label { font-weight: 500; }
+.slider-row output { font: 500 0.85rem var(--f-mono); min-width: 4ch; text-align: right; font-variant-numeric: tabular-nums; }
+input[type="range"] { width: 100%; accent-color: var(--accent); height: 32px; }
+
+.fx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.chip { border: 1px solid var(--line); background: transparent; border-radius: 10px; padding: 9px 10px; cursor: pointer; text-align: left; font-size: 0.88rem; display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.chip i { width: 18px; height: 18px; border-radius: 4px; flex: none; box-shadow: inset 0 0 0 1px var(--line); }
+.chip[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.note { color: var(--muted); font-size: 0.88rem; margin: 0; }
+
+details.panel summary { cursor: pointer; font: 600 0.8rem/1 var(--f-display); text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); list-style: none; display: flex; justify-content: space-between; }
+details.panel summary::after { content: "+"; font-family: var(--f-mono); }
+details.panel[open] summary::after { content: "−"; }
+details.panel[open] summary { margin-bottom: 14px; }
+.field { display: grid; gap: 4px; margin-bottom: 12px; }
+.field label { font-size: 0.85rem; color: var(--muted); }
+select, input[type="text"] { width: 100%; min-width: 0; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 9px 10px; }
+.raw { display: flex; gap: 8px; }
+.raw input { font-family: var(--f-mono); }
+pre.log { margin: 0; font: 400 0.75rem/1.5 var(--f-mono); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 0.88rem; color: var(--muted); margin-top: 8px; }
+
+.help { grid-column: 1 / -1; }
+.help ul { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; max-width: 70ch; }
+
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Floodlight Remote<small>Bluetooth control for 12V RGB LED floodlights</small></h1>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span class="status" id="status" data-state="idle"><span class="dot"></span><span id="statusText">Not connected</span></span>
+      <button class="btn primary" id="connectBtn" type="button">Connect light</button>
+    </div>
+  </header>
+
+  <div class="banner" id="noBt" hidden>
+    <b>This browser can't use Bluetooth.</b>
+    On Android, Windows, Mac or Chromebook, open this page in Chrome or Edge. On iPhone or iPad, install the free <b style="display:inline">Bluefy</b> browser from the App Store and open this page in it. You can still try the controls below as a preview.
+  </div>
+
+  <div class="stage-col">
+    <div class="stage" id="stage">
+      <div class="lamp" aria-hidden="true"><div class="lens"></div></div>
+      <div class="readout">
+        <span>HEX <b id="hexOut">#FFB15C</b></span>
+        <span>RGB <b id="rgbOut">255 177 92</b></span>
+        <span>MODE <b id="modeOut">Solid</b></span>
+      </div>
+    </div>
+    <div class="power-row">
+      <button class="btn" id="onBtn" type="button" aria-pressed="true">On</button>
+      <button class="btn" id="offBtn" type="button" aria-pressed="false">Off</button>
+    </div>
+  </div>
+
+  <div class="controls">
+    <section class="panel">
+      <h2>Color <span id="hsOut">H 31° · S 64%</span></h2>
+      <div class="color-grid">
+        <div class="wheel-wrap" id="wheelWrap" tabindex="0" role="application" aria-label="Color wheel. Left and right arrows change hue, up and down change saturation.">
+          <canvas id="wheel" width="480" height="480"></canvas>
+          <div class="marker" id="marker"></div>
+        </div>
+        <div class="swatches" id="swatches"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="slider-row">
+        <label for="bright">Brightness</label>
+        <input type="range" id="bright" min="1" max="100" value="100">
+        <output id="brightOut" for="bright">100%</output>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Effects <span id="fxProto">ELK-BLEDOM set</span></h2>
+      <div class="fx-grid" id="fxGrid"></div>
+      <p class="note" id="fxNote" hidden>This controller type has no built-in effects.</p>
+      <div class="slider-row" id="speedRow">
+        <label for="speed">Speed</label>
+        <input type="range" id="speed" min="0" max="100" value="50">
+        <output id="speedOut" for="speed">50</output>
+      </div>
+    </section>
+
+    <details class="panel" id="adv">
+      <summary>Advanced &amp; troubleshooting</summary>
+      <div class="field">
+        <label for="protoSel">Controller protocol (change this if the light connects but doesn't react)</label>
+        <select id="protoSel"></select>
+      </div>
+      <div class="field">
+        <label for="charSel">Bluetooth channel to write to</label>
+        <select id="charSel"><option value="">Connect a light first</option></select>
+      </div>
+      <div class="field">
+        <label for="rawHex">Send raw bytes (hex)</label>
+        <div class="raw">
+          <input type="text" id="rawHex" placeholder="7e 00 05 03 ff 00 00 00 ef" spellcheck="false" autocomplete="off">
+          <button class="btn" id="rawBtn" type="button">Send</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="log">Activity log</label>
+        <pre class="log" id="log" tabindex="0"></pre>
+      </div>
+      <label class="check"><input type="checkbox" id="showAll"> Show every nearby Bluetooth device when connecting (use this if your light isn't in the list)</label>
+    </details>
+  </div>
+
+  <section class="panel help">
+    <h2>If it won't connect</h2>
+    <ul>
+      <li>Close any other app that might be connected to the light, and turn the light's power off and on. These controllers only accept one connection at a time.</li>
+      <li>Turn on Bluetooth (and on Android, Location) on your phone. Chrome asks for permission the first time.</li>
+      <li>Lights usually show up with names like <code>ELK-BLEDOM</code>, <code>MELK</code>, <code>LEDBLE</code>, <code>Triones</code>, <code>QHM-</code> or <code>BJ_LED</code>. If yours has a different name, tick "Show every nearby Bluetooth device" under Advanced.</li>
+      <li>If it connects but nothing changes, open Advanced and try the other protocol options one at a time.</li>
+      <li>If the light only came with a small infrared remote and never had a Bluetooth app, a phone can't control it this way.</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const u = (s) => `0000${s}-0000-1000-8000-00805f9b34fb`;
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const hex2 = (n) => n.toString(16).padStart(2, "0");
+
+  // ---------- Controller protocols ----------
+  const C = { R: "#ff2a2a", G: "#2aff4a", B: "#2a5cff", Y: "#ffe02a", C: "#2affee", M: "#ff2aee", W: "#ffffff" };
+  const SEVEN = ["R", "G", "B", "Y", "C", "M", "W"];
+  const NAMES = { R: "red", G: "green", B: "blue", Y: "yellow", C: "cyan", M: "magenta", W: "white" };
+
+  // [code, label, preview kind, color keys]
+  const ELK_FX = [
+    [0x87, "Jump RGB", "jump", ["R", "G", "B"]],
+    [0x88, "Jump 7 colors", "jump", SEVEN],
+    [0x89, "Fade RGB", "fade", ["R", "G", "B"]],
+    [0x8a, "Fade 7 colors", "fade", SEVEN],
+    [0x95, "Strobe 7 colors", "strobe", SEVEN],
+    [0x92, "Red ↔ green", "fade", ["R", "G"]],
+    [0x93, "Red ↔ blue", "fade", ["R", "B"]],
+    [0x94, "Green ↔ blue", "fade", ["G", "B"]],
+    ...["R", "G", "B", "Y", "C", "M", "W"].map((k, i) => [0x8b + i, `Breathe ${NAMES[k]}`, "pulse", [k]]),
+    ...["R", "G", "B", "Y", "C", "M", "W"].map((k, i) => [0x96 + i, `Strobe ${NAMES[k]}`, "strobe", [k]]),
+  ];
+  const TRIONES_FX = [
+    [0x38, "Jump 7 colors", "jump", SEVEN],
+    [0x25, "Fade 7 colors", "fade", SEVEN],
+    [0x30, "Strobe 7 colors", "strobe", SEVEN],
+    [0x2d, "Red ↔ green", "fade", ["R", "G"]],
+    [0x2e, "Red ↔ blue", "fade", ["R", "B"]],
+    [0x2f, "Green ↔ blue", "fade", ["G", "B"]],
+    ...["R", "G", "B", "Y", "C", "M", "W"].map((k, i) => [0x26 + i, `Breathe ${NAMES[k]}`, "pulse", [k]]),
+    ...["R", "G", "B", "Y", "C", "M", "W"].map((k, i) => [0x31 + i, `Strobe ${NAMES[k]}`, "strobe", [k]]),
+  ];
+  // Triones speed byte: 0x01 is fastest, 0x1f slowest.
+  const trionesSpeed = (s) => Math.round(0x1f - (s / 100) * 0x1e);
+
+  const triones = (name, svc, chr) => ({
+    id: name.toLowerCase().replace(/\W+/g, "-"), name, service: u(svc), char: u(chr),
+    on: () => [0xcc, 0x23, 0x33],
+    off: () => [0xcc, 0x24, 0x33],
+    color: (r, g, b) => [0x56, r, g, b, 0x00, 0xf0, 0xaa],
+    white: (w) => [0x56, 0x00, 0x00, 0x00, w, 0x0f, 0xaa],
+    effect: (m, s) => [0xbb, m, trionesSpeed(s), 0x44],
+    effects: TRIONES_FX,
+  });
+
+  const PROFILES = [
+    {
+      id: "elk", name: "ELK-BLEDOM / MELK / Lotus Lamp / duoCo", service: u("fff0"), char: u("fff3"),
+      on: () => [0x7e, 0x00, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef],
+      off: () => [0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
+      color: (r, g, b) => [0x7e, 0x00, 0x05, 0x03, r, g, b, 0x00, 0xef],
+      brightness: (p) => [0x7e, 0x00, 0x01, p, 0x00, 0x00, 0x00, 0x00, 0xef],
+      effect: (m) => [0x7e, 0x00, 0x03, m, 0x03, 0x00, 0x00, 0x00, 0xef],
+      speed: (s) => [0x7e, 0x00, 0x02, s, 0x00, 0x00, 0x00, 0x00, 0xef],
+      effects: ELK_FX,
+    },
+    {
+      id: "elk-alt", name: "ELK-BLEDOM (alternate commands)", service: u("fff0"), char: u("fff3"),
+      on: () => [0x7e, 0x04, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef],
+      off: () => [0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
+      color: (r, g, b) => [0x7e, 0x07, 0x05, 0x03, r, g, b, 0x10, 0xef],
+      brightness: (p) => [0x7e, 0x04, 0x01, p, 0x01, 0xff, 0x02, 0x01, 0xef],
+      effect: (m) => [0x7e, 0x05, 0x03, m, 0x03, 0xff, 0xff, 0x00, 0xef],
+      speed: (s) => [0x7e, 0x04, 0x02, s, 0xff, 0xff, 0xff, 0x00, 0xef],
+      effects: ELK_FX,
+    },
+    triones("Triones / HappyLighting / QHM", "ffd5", "ffd9"),
+    triones("Magic Blue / LEDBLE", "ffe5", "ffe9"),
+    {
+      id: "bj", name: "BJ_LED / MohuanLED", service: u("ffe0"), char: u("ee01"),
+      on: () => [0x69, 0x96, 0x02, 0x01, 0x01],
+      off: () => [0x69, 0x96, 0x02, 0x01, 0x00],
+      color: (r, g, b) => [0x69, 0x96, 0x05, 0x02, r, g, b],
+      effects: [],
+    },
+  ];
+  const ALL_SERVICES = [...new Set([...PROFILES.map((p) => p.service), u("ffe0"), u("ffd0"), u("ff00")])];
+  const NAME_PREFIXES = ["ELK", "MELK", "BLEDOM", "LEDBLE", "LEDnet", "Triones", "QHM", "Dream", "BJ_LED", "MohuanLED", "duoCo", "LED", "Flood", "SP"];
+
+  // ---------- State ----------
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem("flr." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem("flr." + k, JSON.stringify(v)); } catch {} },
+  };
+  const state = {
+    on: true,
+    h: store.get("h", 31), s: store.get("s", 0.64),
+    bright: store.get("bright", 100), speed: store.get("speed", 50),
+    effect: null, white: false,
+    profile: PROFILES[0],
+    device: null, char: null, chars: [],
+  };
+
+  // ---------- Color math ----------
+  function hsv2rgb(h, s, v) {
+    const f = (n) => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+    return [f(5), f(3), f(1)].map((x) => Math.round(x * 255));
+  }
+  function rgb2hsv(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+    let h = 0;
+    if (d) h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return [(h * 60 + 360) % 360, max ? d / max : 0, max];
+  }
+  const toHex = (rgb) => "#" + rgb.map(hex2).join("").toUpperCase();
+  const fromHex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const baseRgb = () => hsv2rgb(state.h, state.s, 1);
+
+  // ---------- Bluetooth write queue (coalesces rapid updates per key) ----------
+  const pending = new Map();
+  let pumping = false;
+  function send(key, bytes) {
+    if (!bytes) return;
+    pending.delete(key);
+    pending.set(key, bytes);
+    pump();
+  }
+  async function pump() {
+    if (pumping) return;
+    pumping = true;
+    try {
+      while (pending.size) {
+        const [key, bytes] = pending.entries().next().value;
+        pending.delete(key);
+        if (!state.char) { log(`(preview) ${key}: ${fmt(bytes)}`); continue; }
+        try {
+          const data = new Uint8Array(bytes);
+          const p = state.char.properties;
+          if (p.writeWithoutResponse && state.char.writeValueWithoutResponse) await state.char.writeValueWithoutResponse(data);
+          else if (state.char.writeValueWithResponse) await state.char.writeValueWithResponse(data);
+          else await state.char.writeValue(data);
+          log(`→ ${key}: ${fmt(bytes)}`);
+        } catch (e) {
+          log(`✕ ${key} failed: ${e.message}`);
+        }
+        await sleep(25);
+      }
+    } finally {
+      pumping = false;
+    }
+  }
+  const fmt = (bytes) => bytes.map(hex2).join(" ");
+
+  // ---------- Commands ----------
+  function sendColor() {
+    const P = state.profile;
+    let rgb = baseRgb();
+    if (!P.brightness) rgb = rgb.map((c) => Math.round((c * state.bright) / 100));
+    if (state.white && P.white) send("color", P.white(Math.round(2.55 * state.bright)));
+    else send("color", P.color(...rgb));
+  }
+  function sendBrightness() {
+    const P = state.profile;
+    if (P.brightness) send("bright", P.brightness(state.bright));
+    else if (!state.effect) sendColor();
+  }
+  function ensureOn() {
+    if (!state.on) { state.on = true; send("power", state.profile.on()); }
+  }
+  function pickColor(h, s, { white = false } = {}) {
+    state.h = h; state.s = s; state.white = white; state.effect = null;
+    ensureOn();
+    sendColor();
+    store.set("h", h); store.set("s", s);
+    render();
+  }
+  function pickEffect(fx) {
+    state.effect = fx; state.white = false;
+    ensureOn();
+    const P = state.profile;
+    send("effect", P.effect(fx[0], state.speed));
+    if (P.speed) send("speed", P.speed(state.speed));
+    render();
+  }
+  function setPower(on) {
+    state.on = on;
+    send("power", on ? state.profile.on() : state.profile.off());
+    render();
+  }
+
+  // ---------- Connection ----------
+  async function connect() {
+    if (!navigator.bluetooth) { $("noBt").hidden = false; return; }
+    const showAll = $("showAll").checked;
+    const opts = showAll
+      ? { acceptAllDevices: true, optionalServices: ALL_SERVICES }
+      : { filters: [...NAME_PREFIXES.map((namePrefix) => ({ namePrefix })), ...PROFILES.map((p) => ({ services: [p.service] }))], optionalServices: ALL_SERVICES };
+    let device;
+    try {
+      device = await navigator.bluetooth.requestDevice(opts);
+    } catch (e) {
+      if (e.name === "NotFoundError") { log("No device chosen."); return; }
+      setStatus("err", "Bluetooth unavailable");
+      log(`Couldn't open the device list: ${e.message}`);
+      return;
+    }
+    if (state.device && state.device !== device) state.device.gatt.disconnect();
+    state.device = device;
+    device.addEventListener("gattserverdisconnected", onDisconnect);
+    await openGatt();
+  }
+
+  async function openGatt() {
+    const device = state.device;
+    setStatus("busy", `Connecting to ${device.name || "light"}…`);
+    try {
+      const server = await device.gatt.connect();
+      state.chars = [];
+      for (const svc of ALL_SERVICES) {
+        try {
+          const s = await server.getPrimaryService(svc);
+          for (const c of await s.getCharacteristics()) {
+            if (c.properties.write || c.properties.writeWithoutResponse) state.chars.push(c);
+          }
+        } catch { /* service not on this device */ }
+      }
+      log(`Connected to ${device.name || device.id}. Writable channels: ${state.chars.map((c) => short(c.service.uuid) + "/" + short(c.uuid)).join(", ") || "none"}`);
+
+      const saved = store.get("proto:" + (device.name || device.id), null);
+      let match = saved && PROFILES.find((p) => p.id === saved && state.chars.some((c) => c.uuid === p.char));
+      match = match || PROFILES.find((p) => state.chars.some((c) => c.uuid === p.char && c.service.uuid === p.service));
+      if (match) {
+        state.profile = match;
+        state.char = state.chars.find((c) => c.uuid === match.char && c.service.uuid === match.service);
+        log(`Using protocol: ${match.name}`);
+      } else {
+        state.char = state.chars[0] || null;
+        log("Didn't recognize this controller. Open Advanced and try each protocol.");
+        $("adv").open = true;
+      }
+      fillCharSel();
+      $("protoSel").value = state.profile.id;
+      setStatus(state.char ? "on" : "err", state.char ? (device.name || "Light") + " connected" : "No writable channel");
+      $("connectBtn").textContent = "Switch light";
+      renderEffects();
+      // Sync the light to what the app shows.
+      send("power", state.on ? state.profile.on() : state.profile.off());
+      if (state.on) { sendBrightness(); sendColor(); }
+    } catch (e) {
+      state.char = null;
+      setStatus("err", "Couldn't connect");
+      log(`Connection failed: ${e.message}`);
+    }
+  }
+
+  function onDisconnect() {
+    state.char = null;
+    setStatus("err", "Disconnected");
+    $("connectBtn").textContent = "Reconnect";
+    log("Light disconnected.");
+  }
+
+  const short = (uuid) => (/^0000(....)-0000-1000-8000-00805f9b34fb$/.test(uuid) ? uuid.slice(4, 8) : uuid);
+  function fillCharSel() {
+    const sel = $("charSel");
+    sel.textContent = "";
+    if (!state.chars.length) { sel.add(new Option("No writable channels found", "")); return; }
+    state.chars.forEach((c, i) => {
+      const o = new Option(`service ${short(c.service.uuid)} → ${short(c.uuid)}${c.properties.writeWithoutResponse ? " (fast write)" : ""}`, i);
+      o.selected = c === state.char;
+      sel.add(o);
+    });
+  }
+
+  function setStatus(s, text) { $("status").dataset.state = s; $("statusText").textContent = text; }
+  const logLines = [];
+  function log(msg) {
+    const t = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    logLines.push(`${t}  ${msg}`);
+    if (logLines.length > 80) logLines.shift();
+    const el = $("log");
+    el.textContent = logLines.join("\n");
+    el.scrollTop = el.scrollHeight;
+  }
+
+  // ---------- Color wheel ----------
+  const wheel = $("wheel"), wrap = $("wheelWrap"), marker = $("marker");
+  function drawWheel() {
+    const ctx = wheel.getContext("2d"), N = wheel.width, r = N / 2;
+    const img = ctx.createImageData(N, N);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const dx = x - r + 0.5, dy = y - r + 0.5, d = Math.hypot(dx, dy) / r;
+      const i = (y * N + x) * 4;
+      if (d > 1) { img.data[i + 3] = 0; continue; }
+      const h = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+      const [R, G, B] = hsv2rgb(h, d, 1);
+      img.data[i] = R; img.data[i + 1] = G; img.data[i + 2] = B;
+      img.data[i + 3] = d > 0.985 ? Math.round(255 * (1 - d) / 0.015) : 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  function wheelPick(ev) {
+    const b = wheel.getBoundingClientRect(), r = b.width / 2;
+    const dx = ev.clientX - b.left - r, dy = ev.clientY - b.top - r;
+    pickColor((Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360, clamp(Math.hypot(dx, dy) / r, 0, 1));
+  }
+  wheel.addEventListener("pointerdown", (e) => { wheel.setPointerCapture(e.pointerId); wheelPick(e); });
+  wheel.addEventListener("pointermove", (e) => { if (wheel.hasPointerCapture(e.pointerId)) wheelPick(e); });
+  wrap.addEventListener("keydown", (e) => {
+    const step = e.shiftKey ? 15 : 5;
+    const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, 0.05], ArrowDown: [0, -0.05] };
+    if (!moves[e.key]) return;
+    e.preventDefault();
+    pickColor((state.h + moves[e.key][0] + 360) % 360, clamp(state.s + moves[e.key][1], 0, 1));
+  });
+
+  // ---------- Swatches ----------
+  const SWATCHES = [
+    ["Red", "#ff0000"], ["Orange", "#ff6a00"], ["Amber", "#ffb000"], ["Yellow", "#ffe600"],
+    ["Green", "#00ff2a"], ["Cyan", "#00f0ff"], ["Blue", "#0030ff"], ["Purple", "#8a00ff"],
+    ["Pink", "#ff2aa8"], ["Magenta", "#ff00ff"], ["Warm", "#ffc890"], ["White", "#ffffff"],
+  ];
+  for (const [name, hex] of SWATCHES) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "swatch"; b.style.background = hex;
+    b.setAttribute("aria-label", name);
+    b.innerHTML = `<span>${name}</span>`;
+    b.addEventListener("click", () => {
+      const [h, s] = rgb2hsv(...fromHex(hex));
+      pickColor(h, s, { white: name === "White" });
+    });
+    $("swatches").append(b);
+  }
+
+  // ---------- Effects ----------
+  function renderEffects() {
+    const grid = $("fxGrid"), P = state.profile;
+    grid.textContent = "";
+    $("fxProto").textContent = P.name.split(" /")[0] + " set";
+    $("fxNote").hidden = P.effects.length > 0;
+    $("speedRow").hidden = P.effects.length === 0;
+    for (const fx of P.effects) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "chip";
+      const cols = fx[3].map((k) => C[k]);
+      const sw = document.createElement("i");
+      sw.style.background = cols.length > 1 ? `linear-gradient(135deg, ${cols.join(",")})` : cols[0];
+      b.append(sw, document.createTextNode(fx[1]));
+      b.setAttribute("aria-pressed", String(state.effect && state.effect[0] === fx[0]));
+      b.addEventListener("click", () => pickEffect(fx));
+      grid.append(b);
+    }
+  }
+
+  // ---------- Preview rendering ----------
+  const stage = $("stage");
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function mix(a, b, t) { return a.map((v, i) => Math.round(v + (b[i] - v) * t)); }
+  function effectFrame(now) {
+    const fx = state.effect;
+    const cols = fx[3].map((k) => fromHex(C[k]));
+    const period = 2600 - state.speed * 22; // ms per color step
+    const t = now / period, i = Math.floor(t) % cols.length, f = t % 1;
+    switch (fx[2]) {
+      case "jump": return [cols[i], 1];
+      case "fade": return [mix(cols[i], cols[(i + 1) % cols.length], f), 1];
+      case "strobe": return [cols[Math.floor(now / (period / 4)) % cols.length], (Math.floor(now / (period / 8)) % 2) ? 0.05 : 1];
+      case "pulse": return [cols[0], 0.15 + 0.85 * (0.5 - 0.5 * Math.cos(t * Math.PI * 2))];
+    }
+    return [cols[0], 1];
+  }
+  function paintPreview(now) {
+    let rgb = baseRgb(), a = state.bright / 100;
+    if (state.effect) {
+      const [c, k] = reduceMotion ? [fromHex(C[state.effect[3][0]]), 1] : effectFrame(now);
+      rgb = c; a *= k;
+    }
+    stage.style.setProperty("--glow", toHex(rgb));
+    stage.style.setProperty("--glow-a", (0.15 + a * 0.85).toFixed(3));
+    if (state.effect && state.on && !reduceMotion) requestAnimationFrame(paintPreview);
+  }
+
+  function render() {
+    stage.classList.toggle("off", !state.on);
+    $("onBtn").setAttribute("aria-pressed", String(state.on));
+    $("offBtn").setAttribute("aria-pressed", String(!state.on));
+    const rgb = baseRgb();
+    $("hexOut").textContent = toHex(rgb);
+    $("rgbOut").textContent = rgb.join(" ");
+    $("hsOut").textContent = `H ${Math.round(state.h)}° · S ${Math.round(state.s * 100)}%`;
+    $("modeOut").textContent = !state.on ? "Off" : state.effect ? state.effect[1] : "Solid";
+    const a = state.h * Math.PI / 180;
+    marker.style.left = `${50 + Math.cos(a) * state.s * 50}%`;
+    marker.style.top = `${50 + Math.sin(a) * state.s * 50}%`;
+    marker.style.background = toHex(rgb);
+    $("bright").value = state.bright; $("brightOut").textContent = state.bright + "%";
+    $("speed").value = state.speed; $("speedOut").textContent = state.speed;
+    for (const [i, b] of [...$("fxGrid").children].entries()) {
+      b.setAttribute("aria-pressed", String(!!state.effect && state.profile.effects[i] && state.effect[0] === state.profile.effects[i][0]));
+    }
+    requestAnimationFrame(paintPreview);
+  }
+
+  // ---------- Wire up controls ----------
+  $("connectBtn").addEventListener("click", () => {
+    if (state.device && !state.device.gatt.connected && $("connectBtn").textContent === "Reconnect") openGatt();
+    else connect();
+  });
+  $("onBtn").addEventListener("click", () => setPower(true));
+  $("offBtn").addEventListener("click", () => setPower(false));
+  $("bright").addEventListener("input", (e) => {
+    state.bright = +e.target.value; store.set("bright", state.bright);
+    ensureOn(); sendBrightness(); render();
+  });
+  $("speed").addEventListener("input", (e) => {
+    state.speed = +e.target.value; store.set("speed", state.speed);
+    const P = state.profile;
+    if (state.effect) {
+      if (P.speed) send("speed", P.speed(state.speed));
+      else send("effect", P.effect(state.effect[0], state.speed));
+    }
+    render();
+  });
+
+  const protoSel = $("protoSel");
+  for (const p of PROFILES) protoSel.add(new Option(p.name, p.id));
+  protoSel.addEventListener("change", () => {
+    state.profile = PROFILES.find((p) => p.id === protoSel.value);
+    state.effect = null;
+    const c = state.chars.find((c) => c.uuid === state.profile.char && c.service.uuid === state.profile.service);
+    if (c) { state.char = c; fillCharSel(); }
+    if (state.device) store.set("proto:" + (state.device.name || state.device.id), state.profile.id);
+    log(`Protocol set to ${state.profile.name}`);
+    renderEffects(); render();
+    if (state.char) { send("power", state.profile.on()); state.on = true; sendColor(); render(); }
+  });
+  $("charSel").addEventListener("change", (e) => {
+    const c = state.chars[+e.target.value];
+    if (c) { state.char = c; log(`Writing to ${short(c.service.uuid)}/${short(c.uuid)}`); }
+  });
+  function sendRaw() {
+    const parts = $("rawHex").value.replace(/0x/gi, "").match(/[0-9a-f]{2}/gi);
+    if (!parts) { log("Type bytes as hex, for example: 7e 00 05 03 ff 00 00 00 ef"); return; }
+    send("raw", parts.map((h) => parseInt(h, 16)));
+  }
+  $("rawBtn").addEventListener("click", sendRaw);
+  $("rawHex").addEventListener("keydown", (e) => { if (e.key === "Enter") sendRaw(); });
+
+  // ---------- Boot ----------
+  if (!navigator.bluetooth) $("noBt").hidden = false;
+  drawWheel();
+  renderEffects();
+  render();
+  log(navigator.bluetooth ? "Ready. Tap Connect light." : "Bluetooth isn't available in this browser; controls run in preview only.");
+})();
+</script>
+</body>
+</html>

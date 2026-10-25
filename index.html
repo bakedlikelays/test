@@ -182,9 +182,9 @@ pre.log { margin: 0; font: 400 0.75rem/1.5 var(--f-mono); background: var(--bg);
     </div>
   </header>
 
-  <div class="banner" id="noBt" hidden>
-    <b>This browser can't use Bluetooth.</b>
-    On Android, Windows, Mac or Chromebook, open this page in Chrome or Edge. On iPhone or iPad, install the free <b style="display:inline">Bluefy</b> browser from the App Store and open this page in it. You can still try the controls below as a preview.
+  <div class="banner" id="problem" role="alert" hidden>
+    <b id="problemTitle"></b>
+    <span id="problemBody"></span>
   </div>
 
   <div class="stage-col">
@@ -457,8 +457,45 @@ pre.log { margin: 0; font: 400 0.75rem/1.5 var(--f-mono); background: var(--bg);
   }
 
   // ---------- Connection ----------
+  // ---------- Explaining why Bluetooth isn't working ----------
+  const ua = navigator.userAgent;
+  const inFrame = (() => { try { return window.self !== window.top; } catch { return true; } })();
+  const OPEN_DIRECT = "Save the file, then open it straight from your Downloads folder in Chrome or Edge (not inside another app's preview).";
+  function showProblem(title, body) {
+    $("problemTitle").textContent = title;
+    $("problemBody").textContent = body;
+    $("problem").hidden = false;
+    $("problem").scrollIntoView({ block: "nearest", behavior: "smooth" });
+    log(`${title} ${body}`);
+  }
+  function missingBluetooth() {
+    if (inFrame) return ["This preview window blocks Bluetooth.", OPEN_DIRECT];
+    if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1))
+      return ["iPhone and iPad browsers can't use Bluetooth from web pages.", "Install the free Bluefy browser from the App Store and open this page in it."];
+    if (navigator.brave) return ["Brave has Bluetooth for web pages switched off.", "Go to brave://flags/#brave-web-bluetooth-api, set it to Enabled, restart Brave, and reload this page. Or open the page in Chrome."];
+    if (/Firefox\//.test(ua)) return ["Firefox can't use Bluetooth from web pages.", "Open this page in Chrome or Edge instead."];
+    if (/Safari\//.test(ua) && !/Chrome|Chromium|Edg\//.test(ua)) return ["Safari can't use Bluetooth from web pages.", "Open this page in Chrome or Edge instead."];
+    if (!window.isSecureContext) return ["Bluetooth only works on secure pages.", "Open the page from an https:// address, from http://localhost, or by opening the saved file directly in Chrome."];
+    if (/Linux/.test(ua) && !/Android|CrOS/.test(ua)) return ["Chrome on Linux has Bluetooth for web pages switched off.", "Go to chrome://flags/#enable-experimental-web-platform-features, set it to Enabled, restart Chrome, and reload this page."];
+    return ["This browser can't use Bluetooth.", "Open this page in Chrome or Edge on Android, Windows, Mac or Chromebook. On iPhone, use the Bluefy browser."];
+  }
+  function explainError(e) {
+    const m = e.message || "";
+    if (e.name === "SecurityError") return inFrame ? ["This preview window blocks Bluetooth.", OPEN_DIRECT] : ["The browser blocked Bluetooth on this page.", `${OPEN_DIRECT} (Browser said: ${m})`];
+    if (/adapter/i.test(m)) return ["Bluetooth is turned off, or this device has no Bluetooth.", "Turn Bluetooth on in your device settings and try again. On Android, turn on Location too."];
+    if (e.name === "NotAllowedError") return ["The browser isn't allowed to use Bluetooth.", "In your device settings, allow Chrome to use Bluetooth / Nearby devices (and Location on Android), then try again."];
+    return ["Couldn't open the Bluetooth device list.", `Browser said: ${e.name}: ${m}`];
+  }
+
   async function connect() {
-    if (!navigator.bluetooth) { $("noBt").hidden = false; return; }
+    if (!navigator.bluetooth) { showProblem(...missingBluetooth()); return; }
+    try {
+      if (navigator.bluetooth.getAvailability && !(await navigator.bluetooth.getAvailability())) {
+        showProblem("Bluetooth is turned off, or this device has no Bluetooth.", "Turn Bluetooth on in your device settings and try again. On Android, turn on Location too.");
+        return;
+      }
+    } catch { /* not supported everywhere; carry on */ }
+    $("problem").hidden = true;
     const showAll = $("showAll").checked;
     const opts = showAll
       ? { acceptAllDevices: true, optionalServices: ALL_SERVICES }
@@ -467,9 +504,9 @@ pre.log { margin: 0; font: 400 0.75rem/1.5 var(--f-mono); background: var(--bg);
     try {
       device = await navigator.bluetooth.requestDevice(opts);
     } catch (e) {
-      if (e.name === "NotFoundError") { log("No device chosen."); return; }
+      if (e.name === "NotFoundError" && !/adapter/i.test(e.message)) { log("No device chosen."); return; }
       setStatus("err", "Bluetooth unavailable");
-      log(`Couldn't open the device list: ${e.message}`);
+      showProblem(...explainError(e));
       return;
     }
     if (state.device && state.device !== device) state.device.gatt.disconnect();
@@ -715,7 +752,7 @@ pre.log { margin: 0; font: 400 0.75rem/1.5 var(--f-mono); background: var(--bg);
   $("rawHex").addEventListener("keydown", (e) => { if (e.key === "Enter") sendRaw(); });
 
   // ---------- Boot ----------
-  if (!navigator.bluetooth) $("noBt").hidden = false;
+  if (!navigator.bluetooth) showProblem(...missingBluetooth());
   drawWheel();
   renderEffects();
   render();
